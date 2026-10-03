@@ -1,45 +1,56 @@
-import os, discord, httpx
+import discord, os, requests
 from dotenv import load_dotenv
+
 load_dotenv()
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_KEY = os.getenv("GROQ_API_KEY")
+TOKEN = os.getenv("DISCORD_TOKEN")
+
 intents = discord.Intents.default()
 intents.message_content = True
-intents.guilds = True
 client = discord.Client(intents=intents)
-async def ask_groq(prompt):
-    async with httpx.AsyncClient() as http:
-        r = await http.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-            json={"model": "llama-3.1-8b-instant","messages": [{"role": "user", "content": prompt}],"max_tokens": 500},
-            timeout=30
-        )
-        return r.json()["choices"][0]["message"]["content"]
+
+def ask_groq(question):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [
+            {"role": "system", "content": "انت مساعد ذكي بتتكلم عامية مصرية بسيطة وخفيفة."},
+            {"role": "user", "content": question}
+        ]
+    }
+    r = requests.post(url, headers=headers, json=data, timeout=30)
+    j = r.json()
+    if "choices" not in j:
+        return f"ايرور من Groq: {j}"
+    return j["choices"][0]["message"]["content"]
+
 @client.event
 async def on_ready():
-    print(f"BOT ONLINE: {client.user}")
+    print(f'BOT ONLINE: {client.user}')
+
 @client.event
 async def on_message(message):
     if message.author == client.user:
         return
-    c = message.content.strip()
-    if "اقفل الروم" in c:
-        if message.channel.permissions_for(message.guild.me).manage_channels:
-            await message.channel.edit(archived=True, locked=True)
-            await message.channel.send("الروم اتقفل")
-        else:
-            await message.channel.send("معنديش صلاحية")
+    content = message.content
+    if not (content.startswith('!اسال') or client.user.mentioned_in(message)):
         return
-    if client.user.mentioned_in(message) or c.startswith("!اسال"):
-        q = c.replace(f"<@{client.user.id}>", "").replace("!اسال", "").strip()
-        if not q:
-            await message.reply("اسألني اي حاجة!")
-            return
-        async with message.channel.typing():
-            try:
-                a = await ask_groq(q)
-                await message.reply(a[:2000])
-            except Exception as e:
-                await message.reply(f"ايرور: {e}")
-client.run(DISCORD_TOKEN)
+
+    q = content.replace('!اسال','',1).strip()
+    q = q.replace(f'<@{client.user.id}>','').replace(f'<@!{client.user.id}>','').strip()
+    if not q:
+        q = "ازيك"
+
+    async with message.channel.typing():
+        try:
+            ans = ask_groq(q)
+            await message.reply(ans[:1900])
+        except Exception as e:
+            print(f"ERROR: {e}")
+            await message.reply(f"حصل ايرور: {e}")
+
+client.run(TOKEN)
